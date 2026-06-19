@@ -654,7 +654,7 @@ const defaultSettings: BackendSettings = {
   providerSyncSavedProviders: [],
   providerSyncManualProviders: [],
   providerSyncLastSelectedProvider: "",
-  relayProfilesEnabled: true,
+  relayProfilesEnabled: false,
   enhancementsEnabled: true,
   computerUseGuardEnabled: false,
   codexAppPluginMarketplaceUnlock: true,
@@ -2301,8 +2301,8 @@ function OverviewScreen({
                 <Network className="h-5 w-5" />
               </div>
               <div>
-                <span className="eyebrow">{t("官方中转站")}</span>
-                <h2>JOJO Code</h2>
+                <span className="eyebrow">官方中转站</span>
+                <h2>WhatsAPI</h2>
                 <p>
                   {t("Codex++ 官方中转站，主打稳定接入和划算价格，支持 GPT-5.5、GPT-5.4、Claude Opus 4.8、Claude Opus 4.7、gpt-image-2 等模型与图像能力。")}
                 </p>
@@ -2316,9 +2316,9 @@ function OverviewScreen({
                 <span>Opus 4.7</span>
                 <span>gpt-image-2</span>
               </div>
-              <Button onClick={() => void actions.openExternalUrl("https://jojocode.com/")}>
+              <Button onClick={() => void actions.openExternalUrl("https://whatsapi.mobi")}>
                 <ExternalLink className="h-4 w-4" />
-                {t("打开 JOJO Code")}
+                打开 WhatsAPI
               </Button>
             </div>
           </div>
@@ -5958,7 +5958,7 @@ function normalizeSettings(settings: BackendSettings): BackendSettings {
   return syncLegacyRelayFields({
     ...defaultSettings,
     ...settings,
-    relayProfilesEnabled: settings.relayProfilesEnabled !== false,
+    relayProfilesEnabled: settings.relayProfilesEnabled === true,
     computerUseGuardEnabled: settings.computerUseGuardEnabled === true,
     codexAppImageOverlayOpacity: clampNumber(settings.codexAppImageOverlayOpacity || 35, 1, 100),
     codexAppStepwiseMaxItems: clampNumber(settings.codexAppStepwiseMaxItems ?? 6, 0, 6),
