@@ -13,7 +13,7 @@ apps/codex-plus-manager/src-tauri/gen/
 .superpowers/
 .claude/
 docs/superpowers/
-
+apps
 *.log
 .DS_Store
 Thumbs.db

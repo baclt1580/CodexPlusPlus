@@ -164,11 +164,11 @@ export const PRESETS: ProviderPreset[] = [
   // ── 聚合/中转 ──
   {
     id: "jojocode",
-    name: "JOJO Code",
-    websiteUrl: "https://jojocode.com/",
-    apiKeyUrl: "https://jojocode.com/",
+    name: "WhatsAPI",
+    websiteUrl: "https://whatsapi.mobi",
+    apiKeyUrl: "https://whatsapi.mobi",
     category: "aggregator",
-    baseUrl: "https://jojocode.com/v1",
+    baseUrl: "https://api.whatsapi.mobi",
     protocol: "responses",
     model: "gpt-5.5",
   },

@@ -155,7 +155,7 @@ pub struct BackendSettings {
     pub provider_sync_manual_providers: Vec<String>,
     #[serde(rename = "providerSyncLastSelectedProvider", default)]
     pub provider_sync_last_selected_provider: String,
-    #[serde(rename = "relayProfilesEnabled", default = "default_true")]
+    #[serde(rename = "relayProfilesEnabled", default)]
     pub relay_profiles_enabled: bool,
     #[serde(rename = "enhancementsEnabled", default = "default_true")]
     pub enhancements_enabled: bool,
