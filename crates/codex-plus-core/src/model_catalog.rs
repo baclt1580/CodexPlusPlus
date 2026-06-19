@@ -66,11 +66,7 @@ pub async fn read_codex_model_catalog() -> Value {
 fn relay_profile_model_catalog_value(home: &Path, profile: &RelayProfile) -> Value {
     let models = relay_profile_model_ids(profile);
     let model = profile.model.trim().to_string();
-    let default_model = if models.iter().any(|item| item == &model) {
-        model.clone()
-    } else {
-        models.first().cloned().unwrap_or_default()
-    };
+    let default_model = models.first().cloned().unwrap_or_default();
     let provider_name = if profile.name.trim().is_empty() {
         profile.id.trim()
     } else {
@@ -102,8 +98,10 @@ fn relay_profile_model_catalog_value(home: &Path, profile: &RelayProfile) -> Val
 
 fn relay_profile_model_ids(profile: &RelayProfile) -> Vec<String> {
     unique_strings(
-        std::iter::once(profile.model.as_str())
-            .chain(profile.model_list.split(['\r', '\n', ',']))
+        profile
+            .model_list
+            .split(['\r', '\n', ','])
+            .chain(std::iter::once(profile.model.as_str()))
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToString::to_string)
@@ -212,10 +210,7 @@ pub async fn read_codex_model_catalog_from_home(
 }
 
 fn codex_home_dir() -> PathBuf {
-    std::env::var_os("CODEX_HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(crate::relay_config::default_codex_home_dir)
+    crate::codex_home::default_codex_home_dir()
 }
 
 fn load_codex_config(path: &Path) -> (CodexConfig, HashMap<String, String>, Option<String>) {

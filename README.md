@@ -61,11 +61,19 @@ Windows 安装包会创建桌面和开始菜单快捷方式。macOS DMG 会安�
     </td>
     <td><a href="https://whatsapi.mobi"><strong>WhatsAPI｜ 官方中转站</strong></a><br>WhatsAPI 提供价格划算、稳定易接入的 Codex API 中转服务，支持 GPT-5.5、GPT-5.4、Claude Opus 4.8、Claude Opus 4.7、gpt-image-2 等模型与图像能力，适合日常开发、快速配置、团队协作和长期使用。</td>
   </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/Liuchun-oss/codelf-agent">
+        <img src="docs/images/sponsor-codelf.png" alt="Codelf" height="80">
+      </a>
+    </td>
+    <td><a href="https://github.com/Liuchun-oss/codelf-agent"><strong>Codelf</strong></a><br>Codelf 是内置自主式 AI Agent 的桌面应用，也是一款完整编辑器。它支持用自然语言开发项目、整理资料、操作电脑和调用本地程序，国内可直接使用，支持多家大模型，并通过高上下文缓存命中降低使用成本。</td>
+  </tr>
 </table>
 
 ## 交流与支持
 
-欢迎加入 Codex++ 交流群（QQ群：1103050832），反馈问题、交流使用体验或提出新功能建议。
+欢迎加入 Codex++ 交流群（QQ群：830629290），反馈问题、交流使用体验或提出新功能建议。
 
 微信群：<a href="https://docs.qq.com/doc/DQ2VOanZTTFZJcUpZ#">点击这里获取最新微信群二维码</a>。
 

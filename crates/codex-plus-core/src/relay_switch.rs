@@ -37,6 +37,7 @@ pub fn switch_relay_profile_in_home(
     store
         .save(&selected_settings)
         .context("保存供应商设置失败")?;
+    let selected_settings = store.load().context("读取供应商设置失败")?;
 
     match apply_selected_relay_profile(home, &selected_settings) {
         Ok(result) => Ok(result),
@@ -102,7 +103,7 @@ fn apply_selected_relay_profile(
 }
 
 fn validate_switch_profile_files(profile: &crate::settings::RelayProfile) -> anyhow::Result<()> {
-    if profile.config_contents.trim().is_empty() {
+    if profile.relay_mode != RelayMode::Aggregate && profile.config_contents.trim().is_empty() {
         anyhow::bail!(
             "供应商「{}」缺少独立 config.toml，已停止切换，避免继续显示上一套配置文件。",
             if profile.name.trim().is_empty() {

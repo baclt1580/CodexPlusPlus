@@ -26,6 +26,22 @@ fn windows_entrypoint_plan_contains_silent_and_manager_entrypoints() {
     );
     assert_eq!(plan.uninstall_key, "CodexPlusPlus");
     assert_eq!(plan.legacy_uninstall_key, "Codex++");
+    assert_eq!(
+        plan.uninstaller_path.replace('\\', "/"),
+        "C:/Tools/uninstall.exe"
+    );
+    assert_eq!(
+        plan.uninstall_command.replace('\\', "/"),
+        "\"C:/Tools/uninstall.exe\""
+    );
+    assert_eq!(
+        plan.quiet_uninstall_command.replace('\\', "/"),
+        "\"C:/Tools/uninstall.exe\" /S"
+    );
+    assert_ne!(
+        plan.uninstall_command,
+        "\"C:/Tools/codex-plus-plus-manager.exe\""
+    );
 }
 
 #[test]
@@ -72,6 +88,14 @@ fn macos_bundle_metadata_contains_silent_and_manager_apps() {
 fn installer_exports_expected_two_entrypoint_names() {
     assert_eq!(shortcut_names(), ("Codex++.lnk", "Codex++ 管理工具.lnk"));
     assert_eq!(app_bundle_names(), ("Codex++.app", "Codex++ 管理工具.app"));
+}
+
+#[test]
+fn macos_dmg_includes_applications_shortcut_for_drag_install() {
+    let script = std::fs::read_to_string("../../scripts/installer/macos/package-dmg.sh")
+        .expect("read macOS DMG packaging script");
+
+    assert!(script.contains("ln -s /Applications \"$STAGE/Applications\""));
 }
 
 #[test]

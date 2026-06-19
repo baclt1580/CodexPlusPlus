@@ -161,6 +161,26 @@ pub struct RelayProfileModelsPayload {
     pub endpoint: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvConflictsPayload {
+    pub conflicts: Vec<codex_plus_core::env_conflicts::EnvConflict>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveEnvConflictsRequest {
+    pub names: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveEnvConflictsPayload {
+    pub removed: Vec<codex_plus_core::env_conflicts::EnvConflictRemoval>,
+    pub backup_path: Option<String>,
+    pub remaining: Vec<codex_plus_core::env_conflicts::EnvConflict>,
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveRelayFileRequest {
@@ -345,8 +365,8 @@ pub fn launch_codex_plus(request: LaunchRequest) -> CommandResult<Value> {
 
 #[tauri::command]
 pub fn restart_codex_plus(request: LaunchRequest) -> CommandResult<Value> {
-    codex_plus_core::watcher::stop_launcher_processes();
-    codex_plus_core::watcher::stop_codex_processes();
+    codex_plus_core::watcher::stop_launcher_processes_and_wait();
+    codex_plus_core::watcher::stop_codex_processes_and_wait();
     spawn_codex_plus_launch(request, "Codex 已请求重启，启动任务正在后台运行。")
 }
 
@@ -777,10 +797,14 @@ fn strip_common_config_text_fallback(config_contents: &str, common_config: &str)
 
     let mut kept = Vec::new();
     let mut skipping_table = false;
+    let mut in_root_section = true;
+    let mut removed_root_keys = std::collections::HashSet::new();
+    let source_root_keys = toml_root_keys_before_first_table(config_contents);
 
     for line in config_contents.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_root_section = false;
             let header = trimmed.to_string();
             skipping_table = common.table_headers.contains(&header);
             if skipping_table {
@@ -792,9 +816,21 @@ fn strip_common_config_text_fallback(config_contents: &str, common_config: &str)
             continue;
         }
 
-        if let Some(key) = toml_key_from_line(trimmed) {
+        if in_root_section && let Some(key) = toml_key_from_line(trimmed) {
             if common.root_keys.contains(key) {
-                continue;
+                let is_duplicate_common_key = removed_root_keys.contains(key)
+                    || source_root_keys.contains(key)
+                    || common.table_headers.contains("[features]")
+                    || common
+                        .table_headers
+                        .contains("[marketplaces.openai-bundled]")
+                    || common
+                        .table_headers
+                        .contains("[plugins.\"superpowers@openai-curated\"]");
+                if is_duplicate_common_key {
+                    removed_root_keys.insert(key.to_string());
+                    continue;
+                }
             }
         }
 
@@ -802,6 +838,20 @@ fn strip_common_config_text_fallback(config_contents: &str, common_config: &str)
     }
 
     ensure_text_newline(kept.join("\n").trim_end())
+}
+
+fn toml_root_keys_before_first_table(config_contents: &str) -> std::collections::HashSet<String> {
+    let mut keys = std::collections::HashSet::new();
+    for line in config_contents.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            break;
+        }
+        if let Some(key) = toml_key_from_line(trimmed) {
+            keys.insert(key.to_string());
+        }
+    }
+    keys
 }
 
 struct CommonConfigAnchors {
@@ -1374,6 +1424,45 @@ pub fn read_relay_files() -> CommandResult<RelayFilesPayload> {
 }
 
 #[tauri::command]
+pub fn check_env_conflicts() -> CommandResult<EnvConflictsPayload> {
+    let conflicts = codex_plus_core::env_conflicts::detect_env_conflicts();
+    let message = if conflicts.is_empty() {
+        "未检测到会覆盖 Codex 供应商配置的 OPENAI 环境变量。"
+    } else {
+        "检测到可能覆盖 Codex 供应商配置的 OPENAI 环境变量。"
+    };
+    ok(message, EnvConflictsPayload { conflicts })
+}
+
+#[tauri::command]
+pub fn remove_env_conflicts(
+    request: RemoveEnvConflictsRequest,
+) -> CommandResult<RemoveEnvConflictsPayload> {
+    let backup_dir = codex_plus_core::paths::default_app_state_dir().join("backups");
+    match codex_plus_core::env_conflicts::remove_env_conflicts(&request.names, backup_dir) {
+        Ok(result) => {
+            let remaining = codex_plus_core::env_conflicts::detect_env_conflicts();
+            ok(
+                "环境变量已按确认项删除；重新启动 Codex 后生效。",
+                RemoveEnvConflictsPayload {
+                    removed: result.removed,
+                    backup_path: result.backup_path,
+                    remaining,
+                },
+            )
+        }
+        Err(error) => failed(
+            &format!("删除环境变量失败：{error}"),
+            RemoveEnvConflictsPayload {
+                removed: Vec::new(),
+                backup_path: None,
+                remaining: codex_plus_core::env_conflicts::detect_env_conflicts(),
+            },
+        ),
+    }
+}
+
+#[tauri::command]
 pub fn save_relay_file(request: SaveRelayFileRequest) -> CommandResult<RelayFilesPayload> {
     let home = codex_plus_core::relay_config::default_codex_home_dir();
     match save_relay_file_in_home(&home, &request.kind, &request.contents)
@@ -1812,6 +1901,9 @@ pub fn apply_relay_injection() -> CommandResult<RelayPayload> {
     }
     let relay = settings.active_relay_profile();
     log_relay_apply_request("manager.apply_relay_injection", &settings, &relay);
+    if settings.active_aggregate_relay_profile().is_some() {
+        return apply_aggregate_relay_injection_to_home(&home);
+    }
     if relay_has_complete_files(&relay) {
         return match codex_plus_core::relay_config::apply_relay_profile_to_home_with_switch_rules_and_computer_use_guard(
             &home,
@@ -1898,6 +1990,33 @@ pub fn apply_relay_injection() -> CommandResult<RelayPayload> {
             );
             failed(
                 &format!("写入中转配置失败：{error}"),
+                relay_payload(status, None),
+            )
+        }
+    }
+}
+
+fn apply_aggregate_relay_injection_to_home(home: &Path) -> CommandResult<RelayPayload> {
+    match codex_plus_core::relay_config::apply_relay_config_to_home_with_protocol(
+        home,
+        &codex_plus_core::protocol_proxy::local_responses_proxy_base_url(
+            codex_plus_core::protocol_proxy::DEFAULT_PROTOCOL_PROXY_PORT,
+        ),
+        "codex-plus-aggregate",
+        codex_plus_core::settings::RelayProtocol::Responses,
+        codex_plus_core::protocol_proxy::DEFAULT_PROTOCOL_PROXY_PORT,
+    ) {
+        Ok(result) => {
+            let status = codex_plus_core::relay_config::relay_status_from_home(home);
+            ok(
+                "聚合供应商配置已写入，真实请求会由本地代理按策略轮转。",
+                relay_payload(status, result.backup_path),
+            )
+        }
+        Err(error) => {
+            let status = codex_plus_core::relay_config::relay_status_from_home(home);
+            failed(
+                &format!("写入聚合供应商配置失败：{error}"),
                 relay_payload(status, None),
             )
         }
@@ -2655,6 +2774,20 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_relay_injection_writes_local_proxy_without_chatgpt_auth() {
+        let temp = tempfile::tempdir().unwrap();
+
+        let result = apply_aggregate_relay_injection_to_home(temp.path());
+        let config = std::fs::read_to_string(temp.path().join("config.toml")).unwrap();
+
+        assert_eq!(result.status, "ok");
+        assert!(result.payload.configured);
+        assert!(!result.payload.authenticated);
+        assert!(config.contains(r#"base_url = "http://127.0.0.1:57321/v1""#));
+        assert!(config.contains(r#"experimental_bearer_token = "codex-plus-aggregate""#));
+    }
+
+    #[test]
     fn relay_files_payload_reads_config_and_auth_contents() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -2674,6 +2807,57 @@ mod tests {
         assert!(payload.auth_path.ends_with("auth.json"));
         assert_eq!(payload.config_contents, "model_provider = \"custom\"\n");
         assert_eq!(payload.auth_contents, "{\"OPENAI_API_KEY\":\"sk-test\"}\n");
+    }
+
+    #[test]
+    fn env_conflict_commands_ignore_codex_home_and_remove_openai_vars() {
+        let test_openai_name = "OPENAI_CODEX_PLUS_ENV_CONFLICT_TEST";
+        let previous_openai = std::env::var_os(test_openai_name);
+        let previous_codex_home = std::env::var_os("CODEX_HOME");
+        let temp = tempfile::tempdir().unwrap();
+        unsafe {
+            std::env::set_var(test_openai_name, "sk-test");
+            std::env::set_var("CODEX_HOME", temp.path());
+        }
+
+        let check = check_env_conflicts();
+        assert_eq!(check.status, "ok");
+        assert!(
+            check
+                .payload
+                .conflicts
+                .iter()
+                .any(|item| item.name == test_openai_name)
+        );
+        assert!(
+            !check
+                .payload
+                .conflicts
+                .iter()
+                .any(|item| item.name == "CODEX_HOME")
+        );
+
+        codex_plus_core::env_conflicts::remove_process_env_conflicts_for_tests(
+            &[test_openai_name.to_string(), "CODEX_HOME".to_string()],
+            codex_plus_core::paths::default_app_state_dir().join("test-backups"),
+        )
+        .unwrap();
+        assert!(std::env::var_os(test_openai_name).is_none());
+        assert_eq!(
+            std::env::var_os("CODEX_HOME"),
+            Some(temp.path().as_os_str().to_os_string())
+        );
+
+        unsafe {
+            match previous_openai {
+                Some(value) => std::env::set_var(test_openai_name, value),
+                None => std::env::remove_var(test_openai_name),
+            }
+            match previous_codex_home {
+                Some(value) => std::env::set_var("CODEX_HOME", value),
+                None => std::env::remove_var("CODEX_HOME"),
+            }
+        }
     }
 
     #[test]
@@ -2878,7 +3062,6 @@ mod tests {
             relay_common_config_contents: "[mcp_servers.context7]\ncommand = \"npx\"\n".to_string(),
             relay_profiles: vec![RelayProfile {
                 use_common_config: false,
-                relay_mode: codex_plus_core::settings::RelayMode::PureApi,
                 config_contents: "model = \"gpt-5\"\n\n[mcp_servers.context7]\ncommand = \"npx\"\n"
                     .to_string(),
                 ..RelayProfile::default()
@@ -2961,10 +3144,16 @@ mod tests {
 
         let normalized = normalize_settings_before_save(settings);
 
+        let auth_json: serde_json::Value =
+            serde_json::from_str(&normalized.relay_profiles[0].auth_contents).unwrap();
         assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&normalized.relay_profiles[0].auth_contents)
-                .unwrap(),
-            serde_json::json!({"auth_mode":"chatgpt","tokens":{"access_token":"edited"}})
+            auth_json,
+            serde_json::json!({
+                "auth_mode": "chatgpt",
+                "tokens": {
+                    "access_token": "edited"
+                }
+            })
         );
         assert!(normalized.relay_profiles[0].config_contents.is_empty());
     }
@@ -2983,7 +3172,6 @@ enabled = true
             .to_string(),
             relay_profiles: vec![RelayProfile {
                 use_common_config: true,
-                relay_mode: codex_plus_core::settings::RelayMode::PureApi,
                 config_contents: r#"model = "gpt-5"
 model_reasoning_effort = "high"
 
@@ -3020,7 +3208,6 @@ last_updated = "2026-05-25T11:52:46Z"
             .to_string(),
             relay_profiles: vec![RelayProfile {
                 use_common_config: true,
-                relay_mode: codex_plus_core::settings::RelayMode::PureApi,
                 config_contents: r#"model = "gpt-5"
 model_reasoning_effort = "high"
 
