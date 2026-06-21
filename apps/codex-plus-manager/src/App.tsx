@@ -93,6 +93,21 @@ type OverviewResult = CommandResult<{
   logs_path: string;
 }>;
 
+type PluginMarketplaceRepairResult = CommandResult<{
+  codexHome: string;
+  marketplaceRoot?: string | null;
+  initialized: boolean;
+  configured: boolean;
+  needsRepair: boolean;
+}>;
+
+type PluginMarketplaceStatusResult = CommandResult<{
+  codexHome: string;
+  marketplaceRoot?: string | null;
+  configRegistered: boolean;
+  needsRepair: boolean;
+}>;
+
 type BackendSettings = {
   codexAppPath: string;
   codexExtraArgs: string[];
@@ -125,6 +140,10 @@ type BackendSettings = {
   codexAppImageOverlayPath: string;
   codexAppImageOverlayOpacity: number;
   codexGoalsEnabled: boolean;
+  mobileControlEnabled: boolean;
+  mobileControlRelayUrl: string;
+  mobileControlRoom: string;
+  mobileControlKey: string;
   launchMode: LaunchMode;
   relayBaseUrl: string;
   relayApiKey: string;
@@ -215,6 +234,13 @@ type RelayMode = "official" | "mixedApi" | "pureApi" | "aggregate";
 const PROTOCOL_PROXY_BASE_URL = "http://127.0.0.1:57321/v1";
 const CHAT_UPSTREAM_BASE_URL_KEY = "codex_plus_chat_base_url";
 const SCRIPT_MARKET_REPOSITORY_URL = "https://github.com/BigPizzaV3/CodexPlusPlusScriptMarket";
+const LOCAL_MOBILE_RELAY_URL = "ws://127.0.0.1:57323";
+const PUBLIC_MOBILE_RELAY_URL = "ws://154.201.90.76:57323";
+
+const mobileRelayServers = [
+  { id: "local", label: "本机测试", url: LOCAL_MOBILE_RELAY_URL, capacity: 100 },
+  { id: "public-154", label: "公共服务器 1", url: PUBLIC_MOBILE_RELAY_URL, capacity: 100 },
+];
 
 const emptyContextSelection = (): RelayContextSelection => ({
   mcpServers: [],
@@ -351,6 +377,21 @@ type RelayProfileModelsResult = CommandResult<{
   endpoint: string;
 }>;
 
+type CcsProviderImport = {
+  sourceId: string;
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  protocol: RelayProtocol;
+  configContents: string;
+  authContents: string;
+};
+
+type CcsProvidersResult = CommandResult<{
+  dbPath: string;
+  providers: CcsProviderImport[];
+}>;
+
 type EnvConflict = {
   name: string;
   source: "process" | "user" | string;
@@ -406,6 +447,12 @@ type ProviderSyncProgress = {
   percent: number;
   message: string;
   result: CommandResult<ProviderSyncPayload> | null;
+};
+
+type TaskProgress = {
+  active: boolean;
+  percent: number;
+  message: string;
 };
 
 type LogsResult = CommandResult<{
@@ -531,12 +578,13 @@ type StartupResult = CommandResult<{
   showUpdate: boolean;
 }>;
 
-type Route = "overview" | "relay" | "sessions" | "context" | "enhance" | "zedRemote" | "userScripts" | "recommendations" | "maintenance" | "about" | "settings";
+type Route = "overview" | "relay" | "mobileControl" | "sessions" | "context" | "enhance" | "zedRemote" | "userScripts" | "recommendations" | "maintenance" | "about" | "settings";
 type Theme = "dark" | "light";
 
-const routes: Array<{ id: Route; label: string; icon: LucideIcon }> = [
+const routes: Array<{ id: Route; label: string; icon: LucideIcon; badge?: string }> = [
   { id: "overview", label: "概览", icon: LayoutDashboard },
   { id: "relay", label: "供应商配置", icon: KeyRound },
+  { id: "mobileControl", label: "手机控制", icon: MessageCircle, badge: "测试版" },
   { id: "sessions", label: "会话管理", icon: MessageCircle },
   { id: "context", label: "工具与插件", icon: Network },
   { id: "enhance", label: "页面增强", icon: Hammer },
@@ -580,6 +628,10 @@ const defaultSettings: BackendSettings = {
   codexAppImageOverlayPath: "",
   codexAppImageOverlayOpacity: 35,
   codexGoalsEnabled: false,
+  mobileControlEnabled: false,
+  mobileControlRelayUrl: LOCAL_MOBILE_RELAY_URL,
+  mobileControlRoom: "",
+  mobileControlKey: "",
   launchMode: "patch",
   relayBaseUrl: "",
   relayApiKey: "",
@@ -627,6 +679,7 @@ export function App() {
   const [relay, setRelay] = useState<RelayResult | null>(null);
   const [relayFiles, setRelayFiles] = useState<RelayFilesResult | null>(null);
   const [envConflicts, setEnvConflicts] = useState<EnvConflictsResult | null>(null);
+  const [ccsProviders, setCcsProviders] = useState<CcsProvidersResult | null>(null);
   const [localSessions, setLocalSessions] = useState<LocalSessionsResult | null>(null);
   const [zedRemoteProjects, setZedRemoteProjects] = useState<ZedRemoteProjectsResult | null>(null);
   const [liveContextEntries, setLiveContextEntries] = useState<CodexContextEntries | null>(null);
@@ -649,6 +702,12 @@ export function App() {
     message: "尚未运行历史会话修复。",
     result: null,
   });
+  const [pluginMarketplaceProgress, setPluginMarketplaceProgress] = useState<TaskProgress>({
+    active: false,
+    percent: 0,
+    message: "尚未运行插件市场修复。",
+  });
+  const [pluginMarketplacePrompt, setPluginMarketplacePrompt] = useState<PluginMarketplaceStatusResult | null>(null);
   const [providerSyncTargets, setProviderSyncTargets] = useState<ProviderSyncTargetsResult | null>(null);
   const [selectedProviderSyncTarget, setSelectedProviderSyncTarget] = useState("");
   const [removeOwnedData, setRemoveOwnedData] = useState(false);
@@ -780,6 +839,25 @@ export function App() {
     }
   };
 
+  const refreshCcsProviders = async (silent = false) => {
+    const result = await run(() => call<CcsProvidersResult>("load_ccs_providers"));
+    if (result) {
+      setCcsProviders(result);
+      if (!silent || !isSuccessStatus(result.status)) showResultNotice("cc-switch 导入", result, { silentSuccess: true });
+    }
+    return result;
+  };
+
+  const importCcsProviders = async () => {
+    const result = await run(() => call<SettingsResult>("import_ccs_providers"));
+    if (result) {
+      setSettings(result);
+      setSettingsForm(normalizeSettings(result.settings));
+      showResultNotice("cc-switch 导入", result);
+      await refreshCcsProviders(true);
+    }
+  };
+
   const refreshLocalSessions = async (silent = false) => {
     const result = await run(() => call<LocalSessionsResult>("list_local_sessions"));
     if (result) {
@@ -891,6 +969,7 @@ export function App() {
       await refreshRelay(true);
       await refreshRelayFiles(true);
       await refreshEnvConflicts(true);
+      await refreshCcsProviders(true);
     }
     if (next === "sessions") {
       await refreshSettings(true);
@@ -959,6 +1038,52 @@ export function App() {
       setSettingsForm(normalizeSettings(result.settings));
       showNotice("后端修复", result.message, result.status);
     }
+  };
+
+  const repairPluginMarketplace = async () => {
+    if (pluginMarketplaceProgress.active) return;
+    setPluginMarketplacePrompt(null);
+    setPluginMarketplaceProgress({ active: true, percent: 8, message: "正在检查本地插件市场…" });
+    const progressTimer = window.setInterval(() => {
+      setPluginMarketplaceProgress((current) => {
+        if (!current.active) return current;
+        const nextPercent = Math.min(92, current.percent + 9);
+        const message =
+          nextPercent < 28
+            ? "正在连接 openai/plugins…"
+            : nextPercent < 62
+              ? "正在下载插件市场快照…"
+              : nextPercent < 84
+                ? "正在解压并校验插件文件…"
+                : "正在写入 Codex 配置…";
+        return { ...current, percent: nextPercent, message };
+      });
+    }, 500);
+    try {
+      const result = await run(() => call<PluginMarketplaceRepairResult>("repair_plugin_marketplace"));
+      if (result) {
+        setPluginMarketplaceProgress({
+          active: false,
+          percent: 100,
+          message: result.message,
+        });
+        showNotice("插件市场修复", result.message, result.status);
+      } else {
+        setPluginMarketplaceProgress({
+          active: false,
+          percent: 100,
+          message: "插件市场修复失败，请查看错误提示后重试。",
+        });
+      }
+    } finally {
+      window.clearInterval(progressTimer);
+    }
+  };
+
+  const checkPluginMarketplacePrompt = async () => {
+    const result = await run(() => call<PluginMarketplaceStatusResult>("plugin_marketplace_status"));
+    if (result?.needsRepair) setPluginMarketplacePrompt(result);
+    return result;
   };
 
   const installEntrypoints = async () => {
@@ -1440,6 +1565,7 @@ export function App() {
       await refreshRelay(true);
       await refreshEnvConflicts(true);
       await refreshProviderSyncTargets(true);
+      await checkPluginMarketplacePrompt();
     })();
   }, []);
 
@@ -1468,6 +1594,8 @@ export function App() {
       launch,
       restart,
       repairBackend,
+      repairPluginMarketplace,
+      checkPluginMarketplacePrompt,
       installEntrypoints,
       uninstallEntrypoints,
       repairShortcuts,
@@ -1562,6 +1690,8 @@ export function App() {
       refreshRelayFiles,
       refreshEnvConflicts,
       removeEnvConflicts,
+      refreshCcsProviders,
+      importCcsProviders,
       refreshLiveContextEntries,
       syncLiveContextEntries,
       refreshAds,
@@ -1606,7 +1736,7 @@ export function App() {
       disableWatcher: () => watcherAction("disable_watcher"),
       toggleTheme: () => setTheme((current) => (current === "dark" ? "light" : "dark")),
     }),
-    [route, launchForm, settingsForm, settings, removeOwnedData, update, logs, diagnostics, theme, relayFiles, localSessions, zedRemoteProjects, selectedProviderSyncTarget, envConflicts],
+    [route, launchForm, settingsForm, settings, removeOwnedData, update, logs, diagnostics, theme, relayFiles, localSessions, zedRemoteProjects, selectedProviderSyncTarget, envConflicts, ccsProviders],
   );
   const hasUpdate = update?.updateAvailable === true;
 
@@ -1650,6 +1780,7 @@ export function App() {
                 <Icon className="h-4 w-4" aria-hidden="true" />
               </span>
               <span className="nav-label">{item.label}</span>
+              {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
             </button>
           );
           })}
@@ -1683,6 +1814,7 @@ export function App() {
           {route === "overview" ? (
             <OverviewScreen
               overview={overview}
+              pluginMarketplaceProgress={pluginMarketplaceProgress}
               actions={actions}
             />
           ) : null}
@@ -1691,10 +1823,14 @@ export function App() {
               settings={settings}
               relayFiles={relayFiles}
               envConflicts={envConflicts}
+              ccsProviders={ccsProviders}
               form={settingsForm}
               onFormChange={setSettingsForm}
               actions={actions}
             />
+          ) : null}
+          {route === "mobileControl" ? (
+            <MobileControlScreen form={settingsForm} onFormChange={setSettingsForm} actions={actions} />
           ) : null}
           {route === "sessions" ? (
             <SessionsScreen
@@ -1718,7 +1854,12 @@ export function App() {
             />
           ) : null}
           {route === "enhance" ? (
-            <EnhanceScreen form={settingsForm} onFormChange={setSettingsForm} actions={actions} />
+            <EnhanceScreen
+              form={settingsForm}
+              pluginMarketplaceProgress={pluginMarketplaceProgress}
+              onFormChange={setSettingsForm}
+              actions={actions}
+            />
           ) : null}
           {route === "zedRemote" ? (
             <ZedRemoteScreen projects={zedRemoteProjects} form={settingsForm} onFormChange={setSettingsForm} actions={actions} />
@@ -1750,6 +1891,14 @@ export function App() {
           onClose={() => setNotice(null)}
         />
       ) : null}
+      {pluginMarketplacePrompt ? (
+        <PluginMarketplacePromptDialog
+          progress={pluginMarketplaceProgress}
+          status={pluginMarketplacePrompt}
+          onClose={() => setPluginMarketplacePrompt(null)}
+          onRepair={() => void actions.repairPluginMarketplace()}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1759,6 +1908,8 @@ type Actions = {
   launch: () => Promise<void>;
   restart: () => Promise<void>;
   repairBackend: () => Promise<void>;
+  repairPluginMarketplace: () => Promise<void>;
+  checkPluginMarketplacePrompt: () => Promise<PluginMarketplaceStatusResult | null>;
   installEntrypoints: () => Promise<void>;
   uninstallEntrypoints: () => Promise<void>;
   repairShortcuts: () => Promise<void>;
@@ -1781,6 +1932,8 @@ type Actions = {
   refreshRelayFiles: () => Promise<RelayFilesResult | null>;
   refreshEnvConflicts: (silent?: boolean) => Promise<EnvConflictsResult | null>;
   removeEnvConflicts: (names: string[]) => Promise<void>;
+  refreshCcsProviders: (silent?: boolean) => Promise<CcsProvidersResult | null>;
+  importCcsProviders: () => Promise<void>;
   refreshLiveContextEntries: () => Promise<LiveContextEntriesResult | null>;
   syncLiveContextEntries: (settings: BackendSettings, silent?: boolean) => Promise<LiveContextEntriesResult | null>;
   refreshAds: () => Promise<void>;
@@ -1826,11 +1979,255 @@ type Actions = {
   checkHealth: () => Promise<void>;
 };
 
+type MobileRelayRoomStatus = {
+  room: string;
+  hostOnline: boolean;
+  clientOnline: boolean;
+  connections: number;
+  ageSeconds: number;
+  forwardedMessages: number;
+  forwardedBytes: number;
+};
+
+type MobileRelayStatus = {
+  status: string;
+  service: string;
+  version: string;
+  uptimeSeconds: number;
+  rooms: number;
+  activeConnections: number;
+  totalConnections: number;
+  forwardedMessages: number;
+  forwardedBytes: number;
+  roomDetails: MobileRelayRoomStatus[];
+};
+
+function MobileControlScreen({
+  form,
+  onFormChange,
+  actions,
+}: {
+  form: BackendSettings;
+  onFormChange: (value: BackendSettings) => void;
+  actions: Actions;
+}) {
+  const [serverStatuses, setServerStatuses] = useState<Record<string, MobileRelayStatus | null>>({});
+  const [statusMessage, setStatusMessage] = useState("尚未刷新");
+  const [loadingStatus, setLoadingStatus] = useState(false);
+  const mobileUrl = mobileRelayShareUrl(form);
+  const selectedServerId =
+    mobileRelayServers.find((server) => server.url === form.mobileControlRelayUrl)?.id || mobileRelayServers[0].id;
+  const selectedServer = mobileRelayServers.find((server) => server.id === selectedServerId) ?? mobileRelayServers[0];
+  const selectedStatus = serverStatuses[selectedServer.id] ?? null;
+  const serverCapacity = selectedServer?.capacity ?? 100;
+  const serverLoad = selectedStatus?.activeConnections ?? 0;
+  const saveMobileSettings = async (next: BackendSettings, silent = true) => {
+    onFormChange(next);
+    await actions.saveSettingsValue(next, silent);
+  };
+  const selectRelayServer = (serverId: string) => {
+    const server = mobileRelayServers.find((item) => item.id === serverId);
+    if (!server) return;
+    onFormChange({ ...form, mobileControlRelayUrl: server.url });
+  };
+  const startAndCopyMobileLink = async () => {
+    const room = form.mobileControlRoom.trim() || randomToken(8);
+    const key = form.mobileControlKey.trim() || randomToken(32);
+    const relayUrl = selectedServer.url;
+    const next = {
+      ...form,
+      mobileControlEnabled: true,
+      mobileControlRelayUrl: relayUrl,
+      mobileControlRoom: room,
+      mobileControlKey: key,
+    };
+    await saveMobileSettings(next, true);
+    const link = mobileRelayShareUrl(next);
+    if (!link) {
+      await actions.showMessage("手机控制", "服务器地址无效，无法生成手机链接。", "failed");
+      return;
+    }
+    await actions.launch();
+    try {
+      await navigator.clipboard?.writeText(link);
+      await actions.showMessage("手机控制", "已启动并复制手机链接。");
+    } catch (error) {
+      await actions.showMessage("手机控制", `已启动，但复制链接失败：${stringifyError(error)}`, "failed");
+    }
+  };
+  const refreshRelayStatus = async () => {
+    setLoadingStatus(true);
+    const entries = await Promise.all(mobileRelayServers.map(async (server) => {
+      const httpUrl = mobileRelayHttpUrl(server.url);
+      try {
+        const response = await fetch(`${httpUrl}/status`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return [server.id, (await response.json()) as MobileRelayStatus, ""] as const;
+      } catch (error) {
+        return [server.id, null, `${server.label}: ${error instanceof Error ? error.message : "刷新失败"}`] as const;
+      }
+    }));
+    setServerStatuses(Object.fromEntries(entries.map(([id, data]) => [id, data])));
+    const failed = entries.map(([, , error]) => error).filter(Boolean);
+    setStatusMessage(failed.length ? failed.join("；") : "状态已刷新");
+    setLoadingStatus(false);
+  };
+  useEffect(() => {
+    void refreshRelayStatus();
+  }, []);
+  useEffect(() => {
+    if (!mobileRelayServers.some((server) => server.url === form.mobileControlRelayUrl)) {
+      onFormChange({ ...form, mobileControlRelayUrl: mobileRelayServers[0].url });
+    }
+  }, [form.mobileControlRelayUrl]);
+  return (
+    <>
+      <Panel>
+        <CardHead title="手机控制" detail="选择 relay 服务器后启动，系统会生成随机房间和 Key，并复制手机可直接打开的链接。" />
+        <CardContent>
+          <div className="mobile-server-grid">
+            {mobileRelayServers.map((server) => {
+              const isActive = selectedServerId === server.id;
+              const itemStatus = serverStatuses[server.id] ?? null;
+              const load = itemStatus?.activeConnections ?? 0;
+              return (
+                <button
+                  className={`mobile-server-card ${isActive ? "active" : ""}`}
+                  key={server.id}
+                  onClick={() => selectRelayServer(server.id)}
+                  type="button"
+                >
+                  <span>
+                    <strong>{server.label}</strong>
+                    <small>{server.url}</small>
+                    <small>{itemStatus ? `在线 · ${itemStatus.rooms} 个房间 · ${formatBytes(itemStatus.forwardedBytes)}` : "未连接或未刷新"}</small>
+                  </span>
+                  <em>{load}/{server.capacity}</em>
+                </button>
+              );
+            })}
+          </div>
+          <div className="form-row">
+            <Label className="field">
+              <span>当前服务器</span>
+              <Input readOnly value={selectedServer.url} />
+            </Label>
+            <Label className="field">
+              <span>容量</span>
+              <Input
+                readOnly
+                value={`${serverLoad}/${serverCapacity}`}
+              />
+            </Label>
+          </div>
+          <Toolbar>
+            <Button onClick={() => void startAndCopyMobileLink()} type="button">
+              <Rocket className="h-4 w-4" />
+              启动并复制手机链接
+            </Button>
+            <Button
+              onClick={() => void saveMobileSettings({
+                ...form,
+                mobileControlEnabled: true,
+                mobileControlRoom: randomToken(8),
+                mobileControlKey: randomToken(32),
+              }, false)}
+              type="button"
+              variant="secondary"
+            >
+              <KeyRound className="h-4 w-4" />
+              重新生成 Token
+            </Button>
+            <Button onClick={() => void refreshRelayStatus()} type="button" variant="secondary">
+              <RefreshCw className="h-4 w-4" />
+              {loadingStatus ? "正在刷新" : "刷新服务器状态"}
+            </Button>
+          </Toolbar>
+        </CardContent>
+      </Panel>
+      <Panel>
+        <CardHead title="手机入口" detail="复制出的链接包含随机房间和 Key；relay 服务器只能看到房间、连接数和流量统计。" />
+        <CardContent>
+          <div className="relay-file-panel">
+            <div className="relay-file-head">
+              <div>
+                <strong>{mobileUrl || "未生成手机入口"}</strong>
+                <span>{mobileUrl ? "手机打开后会自动填入房间和 Key 并尝试连接。" : "选择服务器并启动后会生成手机入口。"}</span>
+              </div>
+              {mobileUrl ? (
+                <Button
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(mobileUrl);
+                    void actions.showMessage("手机入口", "已复制手机入口地址。");
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="secondary"
+                >
+                  <Copy className="h-4 w-4" />
+                  复制
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </CardContent>
+      </Panel>
+      <Panel>
+        <CardHead title="服务器状态" detail={statusMessage} />
+        <CardContent>
+          {selectedStatus ? (
+            <>
+              <div className="health-grid">
+                <div className="health-item ok">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <div>
+                    <strong>在线连接</strong>
+                    <span>{selectedStatus.activeConnections} 个在线连接，累计 {selectedStatus.totalConnections} 次连接。</span>
+                  </div>
+                  <Badge status="ok" />
+                </div>
+                <div className="health-item ok">
+                  <Network className="h-4 w-4" />
+                  <div>
+                    <strong>房间数量</strong>
+                    <span>{selectedStatus.rooms} 个房间，已转发 {selectedStatus.forwardedMessages} 条消息。</span>
+                  </div>
+                  <Badge status="ok" />
+                </div>
+              </div>
+              <div className="relay-file-grid">
+                {selectedStatus.roomDetails.map((room) => (
+                  <div className="relay-file-panel" key={room.room}>
+                    <div className="relay-file-head">
+                      <div>
+                        <strong>{room.room}</strong>
+                        <span>
+                          host {room.hostOnline ? "在线" : "离线"} / client {room.clientOnline ? "在线" : "离线"}，
+                          {room.connections} 个连接，{formatBytes(room.forwardedBytes)}
+                        </span>
+                      </div>
+                      <Badge status={room.hostOnline && room.clientOnline ? "ok" : "not_checked"} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="field-hint">点击“刷新服务器状态”查看 relay 负载、在线用户和房间连接情况。</p>
+          )}
+        </CardContent>
+      </Panel>
+    </>
+  );
+}
+
 function OverviewScreen({
   overview,
+  pluginMarketplaceProgress,
   actions,
 }: {
   overview: OverviewResult | null;
+  pluginMarketplaceProgress: TaskProgress;
   actions: Actions;
 }) {
   const health = healthItems(overview);
@@ -1902,7 +2299,11 @@ function OverviewScreen({
             <Button variant="secondary" onClick={() => void actions.repairBackend()}>
               修复后端
             </Button>
+            <Button disabled={pluginMarketplaceProgress.active} variant="secondary" onClick={() => void actions.repairPluginMarketplace()}>
+              {pluginMarketplaceProgress.active ? "正在修复…" : "修复插件市场"}
+            </Button>
           </Toolbar>
+          <TaskProgressBox progress={pluginMarketplaceProgress} title="插件市场修复进度" />
         </CardContent>
       </Panel>
       <Panel>
@@ -1928,6 +2329,7 @@ function RelayScreen({
   settings: _settings,
   relayFiles,
   envConflicts,
+  ccsProviders,
   form,
   onFormChange,
   actions,
@@ -1935,6 +2337,7 @@ function RelayScreen({
   settings: SettingsResult | null;
   relayFiles: RelayFilesResult | null;
   envConflicts: EnvConflictsResult | null;
+  ccsProviders: CcsProvidersResult | null;
   form: BackendSettings;
   onFormChange: (value: BackendSettings) => void;
   actions: Actions;
@@ -1942,6 +2345,7 @@ function RelayScreen({
   const normalized = normalizeSettings(form);
   const [detailProfileId, setDetailProfileId] = useState<string | null>(null);
   const [newProfileDraft, setNewProfileDraft] = useState<RelayProfile | null>(null);
+  const [thirdPartyImportOpen, setThirdPartyImportOpen] = useState(false);
   const detailProfile = newProfileDraft || (detailProfileId
     ? normalized.relayProfiles.find((profile) => profile.id === detailProfileId) || null
     : null);
@@ -1978,6 +2382,10 @@ function RelayScreen({
       void actions.refreshRelayFiles();
     }
   }, [detailProfileId, newProfileDraft, normalized.activeRelayId]);
+  const openThirdPartyImport = () => {
+    setThirdPartyImportOpen((open) => !open);
+    if (!ccsProviders) void actions.refreshCcsProviders(true);
+  };
 
   if (detailProfile) {
     return (
@@ -2038,6 +2446,37 @@ function RelayScreen({
               <Plus className="h-4 w-4" />
               添加聚合供应商
             </Button>
+            <div className="third-party-import">
+              <Button
+                onClick={openThirdPartyImport}
+                variant="secondary"
+              >
+                <Download className="h-4 w-4" />
+                从第三方导入
+              </Button>
+              {thirdPartyImportOpen ? (
+                <div className="third-party-import-menu">
+                  <button
+                    disabled={!ccsProviders?.providers.length}
+                    onClick={() => {
+                      setThirdPartyImportOpen(false);
+                      void actions.importCcsProviders();
+                    }}
+                    type="button"
+                  >
+                    <strong>ccswitch</strong>
+                    <span>{ccsProviderSummary(ccsProviders)}</span>
+                  </button>
+                  <button
+                    onClick={() => void actions.refreshCcsProviders()}
+                    type="button"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    刷新列表
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
           <RelayProfileList
             form={normalized}
@@ -2101,10 +2540,12 @@ function envConflictSourceLabel(source: string): string {
 
 function EnhanceScreen({
   form,
+  pluginMarketplaceProgress,
   onFormChange,
   actions,
 }: {
   form: BackendSettings;
+  pluginMarketplaceProgress: TaskProgress;
   onFormChange: (value: BackendSettings) => void;
   actions: Actions;
 }) {
@@ -2164,6 +2605,14 @@ function EnhanceScreen({
             <FeatureToggle title="Upstream worktree" detail="从最新 upstream 分支创建 Git worktree。" checked={form.codexAppUpstreamWorktreeCreate} disabled={!masterEnabled} onChange={(value) => setEnhanceFlag("codexAppUpstreamWorktreeCreate", value)} />
             <FeatureToggle title="原生菜单栏位置" detail="把 Codex++ 菜单插入 Codex 顶部原生菜单栏。" checked={form.codexAppNativeMenuPlacement} disabled={!masterEnabled} onChange={(value) => setEnhanceFlag("codexAppNativeMenuPlacement", value)} />
           </div>
+          <div className="hint-line">
+            <Wrench className="h-4 w-4" />
+            <span>新机器没有本地插件市场时，可从 openai/plugins 初始化到当前 CODEX_HOME。</span>
+            <Button disabled={pluginMarketplaceProgress.active} variant="secondary" onClick={() => void actions.repairPluginMarketplace()}>
+              {pluginMarketplaceProgress.active ? "正在修复…" : "修复插件市场"}
+            </Button>
+          </div>
+          <TaskProgressBox progress={pluginMarketplaceProgress} title="插件市场修复进度" />
           <div className="zed-remote-settings">
             <Field label="Zed 默认打开策略">
               <select
@@ -4024,6 +4473,52 @@ function FeatureToggle({
   );
 }
 
+function randomToken(byteLength = 24) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function mobileRelayHttpUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const withScheme = /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `ws://${trimmed}`;
+  try {
+    const url = new URL(withScheme);
+    url.protocol = url.protocol === "wss:" || url.protocol === "https:" ? "https:" : "http:";
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function mobileRelayShareUrl(settings: Pick<BackendSettings, "mobileControlRelayUrl" | "mobileControlRoom" | "mobileControlKey">) {
+  const base = mobileRelayHttpUrl(settings.mobileControlRelayUrl);
+  const room = settings.mobileControlRoom.trim();
+  const key = settings.mobileControlKey.trim();
+  if (!base || !room || !key) return "";
+  const url = new URL(`${base}/mobile`);
+  url.searchParams.set("room", room);
+  url.searchParams.set("key", key);
+  url.searchParams.set("auto", "1");
+  return url.toString();
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+}
+
 function GuideList({ items }: { items: string[] }) {
   return (
     <div className="guide-list">
@@ -4062,6 +4557,67 @@ function NoticeDialog({
         </div>
         <button className="toast-close" onClick={onClose} type="button">×</button>
       </div>
+    </div>
+  );
+}
+
+function PluginMarketplacePromptDialog({
+  status,
+  progress,
+  onRepair,
+  onClose,
+}: {
+  status: PluginMarketplaceStatusResult;
+  progress: TaskProgress;
+  onRepair: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true">
+      <div className="modal-card plugin-marketplace-modal">
+        <div className="modal-head">
+          <div>
+            <h2>插件市场需要修复</h2>
+            <p>当前 CODEX_HOME 未发现可用的完整插件市场，API Key 模式下可能出现插件安装后不可用。</p>
+          </div>
+          <button className="toast-close" onClick={onClose} type="button">×</button>
+        </div>
+        <div className="metric-list">
+          <Metric label="CODEX_HOME" value={status.codexHome} />
+          <Metric label="本地插件市场" value={status.marketplaceRoot ?? "未发现"} />
+          <Metric label="配置状态" value={status.configRegistered ? "已注册" : "未注册"} />
+        </div>
+        <TaskProgressBox progress={progress} title="修复进度" />
+        <Toolbar>
+          <Button disabled={progress.active} onClick={onRepair}>
+            <Download className="h-4 w-4" />
+            {progress.active ? "正在修复…" : "一键修复"}
+          </Button>
+          <Button disabled={progress.active} onClick={onClose} variant="secondary">稍后处理</Button>
+        </Toolbar>
+      </div>
+    </div>
+  );
+}
+
+function TaskProgressBox({ progress, title }: { progress: TaskProgress; title: string }) {
+  if (!progress.active && progress.percent <= 0) return null;
+  return (
+    <div className="provider-sync-progress task-progress" data-active={progress.active}>
+      <div className="provider-sync-progress-head">
+        <strong>{progress.active ? title : "上次修复结果"}</strong>
+        <span>{progress.percent}%</span>
+      </div>
+      <div
+        aria-valuemax={100}
+        aria-valuemin={0}
+        aria-valuenow={progress.percent}
+        className="provider-sync-progress-bar"
+        role="progressbar"
+      >
+        <div className="provider-sync-progress-fill" style={{ width: `${progress.percent}%` }} />
+      </div>
+      <small>{progress.message}</small>
     </div>
   );
 }
@@ -4198,6 +4754,7 @@ function routeSubtitle(route: Route) {
   const subtitles: Record<Route, string> = {
     overview: "检查问题、启动与快速修复",
     relay: "管理 API 供应商、协议、Key 与配置文件",
+    mobileControl: "配置手机控制 relay、房间密钥和服务器状态",
     sessions: "查看、删除和修复 Codex 本地会话",
     context: "独立管理 MCP、Skills、Plugins",
     enhance: "会话删除、导出、项目移动和脚本能力",
@@ -5021,6 +5578,13 @@ function activeRelayProfile(settings: BackendSettings): RelayProfile {
 
 function relayProtocolLabel(protocol: RelayProtocol): string {
   return protocol === "chatCompletions" ? "Chat Completions 转 Responses" : "Responses API";
+}
+
+function ccsProviderSummary(result: CcsProvidersResult | null): string {
+  if (!result) return "读取 ~/.cc-switch/cc-switch.db";
+  if (!isSuccessStatus(result.status)) return result.message || "读取 cc-switch 供应商失败。";
+  const count = result.providers.length;
+  return count ? `发现 ${count} 个 Codex 供应商` : "未发现可导入供应商";
 }
 
 function normalizeRelayMode(mode: RelayMode | undefined): RelayMode {
