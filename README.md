@@ -69,6 +69,22 @@ Windows 安装包会创建桌面和开始菜单快捷方式。macOS DMG 会安�
     </td>
     <td><a href="https://github.com/Liuchun-oss/codelf-agent"><strong>Codelf</strong></a><br>Codelf 是内置自主式 AI Agent 的桌面应用，也是一款完整编辑器。它支持用自然语言开发项目、整理资料、操作电脑和调用本地程序，国内可直接使用，支持多家大模型，并通过高上下文缓存命中降低使用成本。</td>
   </tr>
+  <tr>
+    <td align="center">
+      <a href="https://xc.y1yun.net/">
+        <img src="docs/images/sponsor-yiyun-tech.jpg" alt="屹芸科技" height="80">
+      </a>
+    </td>
+    <td><a href="https://xc.y1yun.net/"><strong>屹芸科技</strong></a><br>屹芸科技旗下拥有九五云商发卡网、屹芸付支付系统等面向 AI 聚合赛道的收付产品，支持微信、支付宝、银联、云闪付等通道，提供低费率、D1/D0 结算、7×24 小时技术支持和企微客户专属服务群。平台通道费率稳定、结算准时，并提供高强度网站防护，帮助商户稳定开展线上销售。</td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://sui-xiang.com/">
+        <img src="docs/images/sponsor-sui-xiang-ai-gateway.jpg" alt="随想AI网关" width="150">
+      </a>
+    </td>
+    <td><a href="https://sui-xiang.com/"><strong>随想AI网关</strong></a><br>感谢随想AI网关对本项目的赞助！随想AI网关是一家可靠高效的 API 中继服务提供商，提供 Claude、Codex、Gemini 等中继服务，注重隐私，承诺无数据倒卖、无模型掺水，并提供透明、快速的售后支持。新账户注册每日签到送 0.5 元测试额度，充值额度 1:1，无需订阅，按量付费。</td>
+  </tr>
 </table>
 
 ## 交流与支持
@@ -95,6 +111,8 @@ Telegram 频道：<https://t.me/CodexPlusPlus>
 - 外部 CDP 注入，不改 `app.asar`，不向 Codex 安装目录写入 DLL。
 - 中转注入模式：支持多个中转配置，写入 `CodexPlusPlus` provider，并可切回官方 ChatGPT 登录态。
 - 传统增强模式：插件入口解锁、特殊插件强制安装、会话删除、Markdown 导出、项目移动、Timeline 等。
+- 粘贴修复：从 Word 等富文本来源粘贴到 Codex composer 时只保留纯文本，避免被识别为图片/文件附件。默认关闭，启用后需重启 Codex 才生效。
+  - **使用提示**：管理工具里勾选后需点「保存增强设置」按钮才会写盘，然后重启 Codex++ 才会生效。
 - 用户脚本独立管理，可在启动时注入自定义脚本。
 - Provider 同步：启动前同步本地会话 metadata，切换供应商后旧会话仍可见。
 - Zed 打开入口：识别远程 SSH 上下文后，可从 Codex 直接打开对应文件到 Zed Remote Development。
@@ -167,7 +185,7 @@ experimental_bearer_token = "sk-..."
 
 增强功能在管理工具中统一开关。默认开启增强注入；关闭后不会注入 Codex++ 菜单和脚本。
 
-如果启用中转注入模式，插件入口解锁和强制安装不再需要，界面会提示“中转注入模式下无需开启”。会话删除、导出、移动、Timeline、推荐内容和用户脚本等增强仍可继续使用。
+如果启用中转注入模式，插件入口解锁和强制安装不再需要，界面会提示“中转注入模式下无需开启”。会话删除、导出、移动、Timeline、粘贴修复、推荐内容和用户脚本等增强仍可继续使用。
 
 ## 推荐内容
 
