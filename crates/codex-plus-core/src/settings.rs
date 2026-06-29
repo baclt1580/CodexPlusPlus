@@ -82,6 +82,12 @@ pub struct RelayProfile {
     #[serde(rename = "modelList", default)]
     pub model_list: String,
     #[serde(
+        rename = "modelWindows",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub model_windows: String,
+    #[serde(
         rename = "userAgent",
         default,
         skip_serializing_if = "String::is_empty"
@@ -141,6 +147,7 @@ impl Default for RelayProfile {
             auto_compact_limit: String::new(),
             model_insert_mode: RelayModelInsertMode::Patch,
             model_list: String::new(),
+            model_windows: String::new(),
             user_agent: String::new(),
         }
     }
@@ -192,12 +199,12 @@ pub struct BackendSettings {
     pub enhancements_enabled: bool,
     #[serde(rename = "computerUseGuardEnabled", default)]
     pub computer_use_guard_enabled: bool,
-    #[serde(rename = "codexAppPluginEntryUnlock", default = "default_true")]
-    pub codex_app_plugin_entry_unlock: bool,
     #[serde(rename = "codexAppPluginMarketplaceUnlock", default = "default_true")]
     pub codex_app_plugin_marketplace_unlock: bool,
     #[serde(rename = "codexAppForcePluginInstall", default = "default_true")]
     pub codex_app_force_plugin_install: bool,
+    #[serde(rename = "codexAppPluginAutoExpand", default = "default_true")]
+    pub codex_app_plugin_auto_expand: bool,
     #[serde(rename = "codexAppModelWhitelistUnlock", default = "default_true")]
     pub codex_app_model_whitelist_unlock: bool,
     #[serde(rename = "codexAppSessionDelete", default = "default_true")]
@@ -206,10 +213,12 @@ pub struct BackendSettings {
     pub codex_app_markdown_export: bool,
     #[serde(rename = "codexAppPasteFix", default)]
     pub codex_app_paste_fix: bool,
+    #[serde(rename = "codexAppForceChineseLocale", default = "default_true")]
+    pub codex_app_force_chinese_locale: bool,
+    #[serde(rename = "codexAppFastStartup", default = "default_true")]
+    pub codex_app_fast_startup: bool,
     #[serde(rename = "codexAppProjectMove", default = "default_true")]
     pub codex_app_project_move: bool,
-    #[serde(rename = "codexAppConversationTimeline", default = "default_true")]
-    pub codex_app_conversation_timeline: bool,
     #[serde(rename = "codexAppThreadIdBadge", default)]
     pub codex_app_thread_id_badge: bool,
     #[serde(rename = "codexAppConversationView", default)]
@@ -228,6 +237,8 @@ pub struct BackendSettings {
     pub codex_app_upstream_worktree_create: bool,
     #[serde(rename = "codexAppNativeMenuPlacement", default = "default_true")]
     pub codex_app_native_menu_placement: bool,
+    #[serde(rename = "codexAppNativeMenuLocalization", default = "default_true")]
+    pub codex_app_native_menu_localization: bool,
     #[serde(rename = "codexAppServiceTierControls", default)]
     pub codex_app_service_tier_controls: bool,
     #[serde(rename = "codexAppImageOverlayEnabled", default)]
@@ -242,14 +253,6 @@ pub struct BackendSettings {
     pub codex_app_image_overlay_opacity: u8,
     #[serde(rename = "codexGoalsEnabled", default)]
     pub codex_goals_enabled: bool,
-    #[serde(rename = "mobileControlEnabled", default)]
-    pub mobile_control_enabled: bool,
-    #[serde(rename = "mobileControlRelayUrl", default)]
-    pub mobile_control_relay_url: String,
-    #[serde(rename = "mobileControlRoom", default)]
-    pub mobile_control_room: String,
-    #[serde(rename = "mobileControlKey", default)]
-    pub mobile_control_key: String,
     #[serde(rename = "launchMode", default)]
     pub launch_mode: LaunchMode,
     #[serde(rename = "relayBaseUrl", default = "default_relay_base_url")]
@@ -284,10 +287,6 @@ pub struct BackendSettings {
     pub cli_wrapper_api_key_env: String,
 }
 
-fn default_mobile_control_relay_url() -> String {
-    "ws://127.0.0.1:57323".to_string()
-}
-
 impl Default for BackendSettings {
     fn default() -> Self {
         Self {
@@ -300,15 +299,16 @@ impl Default for BackendSettings {
             relay_profiles_enabled: true,
             enhancements_enabled: true,
             computer_use_guard_enabled: false,
-            codex_app_plugin_entry_unlock: true,
             codex_app_plugin_marketplace_unlock: true,
             codex_app_force_plugin_install: true,
+            codex_app_plugin_auto_expand: true,
             codex_app_model_whitelist_unlock: true,
             codex_app_session_delete: true,
             codex_app_markdown_export: true,
             codex_app_paste_fix: false,
+            codex_app_force_chinese_locale: true,
+            codex_app_fast_startup: true,
             codex_app_project_move: true,
-            codex_app_conversation_timeline: true,
             codex_app_thread_id_badge: false,
             codex_app_conversation_view: false,
             codex_app_thread_scroll_restore: true,
@@ -318,15 +318,12 @@ impl Default for BackendSettings {
             zed_remote_sync_to_zed_settings: false,
             codex_app_upstream_worktree_create: true,
             codex_app_native_menu_placement: true,
+            codex_app_native_menu_localization: true,
             codex_app_service_tier_controls: false,
             codex_app_image_overlay_enabled: false,
             codex_app_image_overlay_path: String::new(),
             codex_app_image_overlay_opacity: default_image_overlay_opacity(),
             codex_goals_enabled: false,
-            mobile_control_enabled: false,
-            mobile_control_relay_url: default_mobile_control_relay_url(),
-            mobile_control_room: String::new(),
-            mobile_control_key: String::new(),
             launch_mode: LaunchMode::Patch,
             relay_base_url: default_relay_base_url(),
             relay_api_key: String::new(),
@@ -380,6 +377,7 @@ impl BackendSettings {
                 auto_compact_limit: String::new(),
                 model_insert_mode: RelayModelInsertMode::Patch,
                 model_list: String::new(),
+                model_windows: String::new(),
                 user_agent: String::new(),
             };
         }
@@ -424,6 +422,7 @@ impl BackendSettings {
             auto_compact_limit: String::new(),
             model_insert_mode: RelayModelInsertMode::Patch,
             model_list: String::new(),
+            model_windows: String::new(),
             user_agent: String::new(),
         }
     }
@@ -646,15 +645,16 @@ fn merge_known_setting_fields(target: &mut Map<String, Value>, source: &Map<Stri
     {
         target.insert("computerUseGuardEnabled".to_string(), Value::Bool(value));
     }
-    merge_bool_setting(target, source, "codexAppPluginEntryUnlock");
     merge_bool_setting(target, source, "codexAppPluginMarketplaceUnlock");
     merge_bool_setting(target, source, "codexAppForcePluginInstall");
+    merge_bool_setting(target, source, "codexAppPluginAutoExpand");
     merge_bool_setting(target, source, "codexAppModelWhitelistUnlock");
     merge_bool_setting(target, source, "codexAppSessionDelete");
     merge_bool_setting(target, source, "codexAppMarkdownExport");
     merge_bool_setting(target, source, "codexAppPasteFix");
+    merge_bool_setting(target, source, "codexAppForceChineseLocale");
+    merge_bool_setting(target, source, "codexAppFastStartup");
     merge_bool_setting(target, source, "codexAppProjectMove");
-    merge_bool_setting(target, source, "codexAppConversationTimeline");
     merge_bool_setting(target, source, "codexAppThreadIdBadge");
     merge_bool_setting(target, source, "codexAppConversationView");
     merge_bool_setting(target, source, "codexAppThreadScrollRestore");
@@ -668,6 +668,7 @@ fn merge_known_setting_fields(target: &mut Map<String, Value>, source: &Map<Stri
     merge_bool_setting(target, source, "zedRemoteSyncToZedSettings");
     merge_bool_setting(target, source, "codexAppUpstreamWorktreeCreate");
     merge_bool_setting(target, source, "codexAppNativeMenuPlacement");
+    merge_bool_setting(target, source, "codexAppNativeMenuLocalization");
     merge_bool_setting(target, source, "codexAppServiceTierControls");
     merge_bool_setting(target, source, "codexAppImageOverlayEnabled");
     if let Some(value) = source
@@ -691,27 +692,6 @@ fn merge_known_setting_fields(target: &mut Map<String, Value>, source: &Map<Stri
     }
     if let Some(value) = source.get("codexGoalsEnabled").and_then(Value::as_bool) {
         target.insert("codexGoalsEnabled".to_string(), Value::Bool(value));
-    }
-    if let Some(value) = source.get("mobileControlEnabled").and_then(Value::as_bool) {
-        target.insert("mobileControlEnabled".to_string(), Value::Bool(value));
-    }
-    if let Some(value) = source.get("mobileControlRelayUrl").and_then(Value::as_str) {
-        target.insert(
-            "mobileControlRelayUrl".to_string(),
-            Value::String(value.trim().to_string()),
-        );
-    }
-    if let Some(value) = source.get("mobileControlRoom").and_then(Value::as_str) {
-        target.insert(
-            "mobileControlRoom".to_string(),
-            Value::String(value.trim().to_string()),
-        );
-    }
-    if let Some(value) = source.get("mobileControlKey").and_then(Value::as_str) {
-        target.insert(
-            "mobileControlKey".to_string(),
-            Value::String(value.trim().to_string()),
-        );
     }
     if let Some(value) = source.get("launchMode").and_then(Value::as_str) {
         if matches!(value, "patch" | "relay") {
@@ -1028,10 +1008,11 @@ mod tests {
         assert!(settings.relay_profiles_enabled);
         assert!(settings.enhancements_enabled);
         assert!(!settings.computer_use_guard_enabled);
-        assert!(settings.codex_app_plugin_entry_unlock);
         assert!(settings.codex_app_plugin_marketplace_unlock);
         assert!(settings.codex_app_force_plugin_install);
+        assert!(settings.codex_app_plugin_auto_expand);
         assert!(!settings.codex_app_thread_id_badge);
+        assert!(settings.codex_app_force_chinese_locale);
         assert!(!settings.codex_goals_enabled);
         assert!(settings.codex_app_path.is_empty());
         assert!(settings.codex_extra_args.is_empty());
@@ -1041,6 +1022,7 @@ mod tests {
         );
         assert!(settings.zed_remote_project_registry_enabled);
         assert!(!settings.zed_remote_sync_to_zed_settings);
+        assert!(settings.codex_app_native_menu_localization);
         assert_eq!(settings.launch_mode, LaunchMode::Patch);
         assert_eq!(settings.relay_base_url, default_relay_base_url());
         assert!(settings.relay_api_key.is_empty());
@@ -1069,31 +1051,30 @@ mod tests {
     }
 
     #[test]
-    fn settings_deserialize_keeps_plugin_unlock_switches_independent() {
+    fn settings_deserialize_keeps_plugin_marketplace_unlock_switch() {
         let settings: BackendSettings = serde_json::from_str(
             r#"{
-                "codexAppPluginEntryUnlock": false,
                 "codexAppPluginMarketplaceUnlock": true,
-                "codexAppForcePluginInstall": false
+                "codexAppForcePluginInstall": false,
+                "codexAppPluginAutoExpand": false
             }"#,
         )
         .unwrap();
 
-        assert!(!settings.codex_app_plugin_entry_unlock);
         assert!(settings.codex_app_plugin_marketplace_unlock);
         assert!(!settings.codex_app_force_plugin_install);
+        assert!(!settings.codex_app_plugin_auto_expand);
 
         let legacy_settings: BackendSettings = serde_json::from_str(
             r#"{
-                "codexAppPluginEntryUnlock": false,
                 "codexAppForcePluginInstall": false
             }"#,
         )
         .unwrap();
 
-        assert!(!legacy_settings.codex_app_plugin_entry_unlock);
         assert!(legacy_settings.codex_app_plugin_marketplace_unlock);
         assert!(!legacy_settings.codex_app_force_plugin_install);
+        assert!(legacy_settings.codex_app_plugin_auto_expand);
     }
 
     #[test]
@@ -1545,8 +1526,9 @@ experimental_bearer_token = "sk-existing""#
         store.save(&settings).unwrap();
 
         let loaded = store.load().unwrap();
+        let expected = normalize_settings_config_sections(settings);
         let active_aggregate = loaded.active_aggregate_relay_profile().unwrap();
-        assert_eq!(loaded, settings);
+        assert_eq!(loaded, expected);
         assert_eq!(
             active_aggregate.strategy,
             AggregateRelayStrategy::WeightedRoundRobin
@@ -1575,10 +1557,10 @@ experimental_bearer_token = "sk-existing""#
             "providerSyncEnabled": true,
             "codexAppPath": "C:\\Portable\\Codex\\Codex.exe",
             "enhancementsEnabled": false,
-            "codexAppPluginEntryUnlock": false,
             "codexAppSessionDelete": false,
             "codexAppConversationView": true,
             "codexAppThreadIdBadge": true,
+            "codexAppNativeMenuLocalization": false,
             "codexAppServiceTierControls": true,
             "codexGoalsEnabled": true,
             "relayBaseUrl": "https://relay.example.test/v1",
@@ -1592,10 +1574,10 @@ experimental_bearer_token = "sk-existing""#
         assert!(updated.provider_sync_enabled);
         assert_eq!(updated.codex_app_path, r"C:\Portable\Codex\Codex.exe");
         assert!(!updated.enhancements_enabled);
-        assert!(!updated.codex_app_plugin_entry_unlock);
         assert!(!updated.codex_app_session_delete);
         assert!(updated.codex_app_conversation_view);
         assert!(updated.codex_app_thread_id_badge);
+        assert!(!updated.codex_app_native_menu_localization);
         assert!(updated.codex_app_service_tier_controls);
         assert!(updated.codex_goals_enabled);
         assert_eq!(updated.relay_base_url, "https://relay.example.test/v1");

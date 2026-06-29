@@ -130,16 +130,15 @@ fn injection_script_explains_plugin_patch_is_unneeded_in_relay_mode() {
 }
 
 #[test]
-fn injection_script_menu_exposes_three_independent_plugin_switches() {
+fn injection_script_menu_exposes_marketplace_and_force_install_plugin_switches() {
     let script = assets::injection_script(57321);
 
     assert!(script.contains("插件市场解锁"));
     assert!(script.contains("data-codex-plus-setting=\"pluginMarketplaceUnlock\""));
-    assert!(script.contains("强制解锁入口"));
-    assert!(script.contains("data-codex-plus-setting=\"pluginEntryUnlock\""));
     assert!(script.contains("特殊插件强制安装"));
     assert!(script.contains("data-codex-plus-setting=\"forcePluginInstall\""));
-    assert!(script.contains("恢复 1.1.9 的入口解锁方式"));
+    assert!(!script.contains("强制解锁入口"));
+    assert!(!script.contains("data-codex-plus-setting=\"pluginEntryUnlock\""));
 }
 
 #[test]
@@ -169,29 +168,23 @@ fn injection_script_gates_legacy_and_modern_plugin_unlock_by_codex_version() {
     let script = assets::injection_script(57321);
 
     assert!(script.contains("const pluginUnlockStrategy = codexPluginUnlockStrategy()"));
-    assert!(script.contains("if ((pluginUnlockStrategy === \"legacy\" || pluginUnlockStrategy === \"unknown\") && settings.pluginEntryUnlock)"));
     assert!(script.contains("if ((pluginUnlockStrategy === \"modern\" || pluginUnlockStrategy === \"unknown\") && settings.pluginMarketplaceUnlock)"));
     assert!(script.contains("plugin_unlock_strategy_selected"));
     assert!(script.contains("window.__codexPluginUnlockStrategyLogged"));
 }
 
 #[test]
-fn injection_script_restores_legacy_plugin_sidebar_entry_unlock() {
+fn injection_script_removes_legacy_plugin_sidebar_entry_unlock() {
     let script = assets::injection_script(57321);
 
-    assert!(script.contains("pluginEntryUnlock: true"));
-    assert!(script.contains("pluginEntryUnlock: \"codexAppPluginEntryUnlock\""));
-    assert!(script.contains("function reactFiberFrom(element)"));
-    assert!(script.contains("function authContextValueFrom(element)"));
-    assert!(script.contains("function spoofChatGPTAuthMethod(element)"));
-    assert!(script.contains("auth.setAuthMethod(\"chatgpt\")"));
-    assert!(script.contains("function pluginEntryButton()"));
-    assert!(script.contains("function enablePluginEntry()"));
-    assert!(script.contains("if (!codexPlusSettings().pluginEntryUnlock) return"));
-    assert!(script.contains("pluginButton.addEventListener(\"click\", () => {"));
-    assert!(script.contains("spoofChatGPTAuthMethod(pluginButton);"));
-    assert!(script.contains("插件 - 已解锁"));
-    assert!(script.contains("Plugins - Unlocked"));
+    assert!(!script.contains("pluginEntryUnlock"));
+    assert!(!script.contains("codexAppPluginEntryUnlock"));
+    assert!(!script.contains("function spoofChatGPTAuthMethod(element)"));
+    assert!(!script.contains("auth.setAuthMethod(\"chatgpt\")"));
+    assert!(!script.contains("function pluginEntryButton()"));
+    assert!(!script.contains("function enablePluginEntry()"));
+    assert!(!script.contains("插件 - 已解锁"));
+    assert!(!script.contains("Plugins - Unlocked"));
 }
 
 #[test]
@@ -203,6 +196,24 @@ fn injection_script_keeps_plugin_marketplace_unlock_separate_from_entry_unlock()
     assert!(script.contains("if (!codexPlusSettings().pluginMarketplaceUnlock) return"));
     assert!(script.contains("installPluginBuildFlavorFilterPatch"));
     assert!(script.contains("installPluginMarketplaceRequestPatch"));
+}
+
+#[test]
+fn injection_script_localizes_codex_menu_commands() {
+    let script = assets::injection_script(57321);
+
+    assert!(script.contains("const codexMenuLocalizationMap = new Map"));
+    assert!(script.contains("[\"Toggle Sidebar\", \"切换侧边栏\"]"));
+    assert!(script.contains("[\"Toggle Bottom Panel\", \"切换底部面板\"]"));
+    assert!(script.contains("[\"Toggle Pinned Summary\", \"切换置顶摘要\"]"));
+    assert!(script.contains("[\"Open Terminal\", \"打开终端\"]"));
+    assert!(script.contains("[\"Open Browser Tab\", \"打开浏览器标签页\"]"));
+    assert!(script.contains("[\"Focus Browser Address Bar\", \"聚焦浏览器地址栏\"]"));
+    assert!(script.contains("[\"Reload Browser Page\", \"重新加载浏览器页面\"]"));
+    assert!(script.contains("[\"Toggle Side Panel\", \"切换侧边面板\"]"));
+    assert!(script.contains("[\"Actual Size\", \"实际大小\"]"));
+    assert!(script.contains("function localizeCodexMenus"));
+    assert!(script.contains("localizeCodexMenus();"));
 }
 
 #[test]
@@ -266,7 +277,9 @@ fn injection_script_expands_api_key_plugin_marketplace_requests() {
     assert!(script.contains("message.type === \"fetch\""));
     assert!(script.contains("data?.type === \"fetch-response\""));
     assert!(script.contains("__codexPluginMarketplaceFetchRequestIds"));
-    assert!(script.contains("delete next.marketplaceKinds"));
+    assert!(script.contains("const nextKinds = Array.isArray(next.marketplaceKinds)"));
+    assert!(script.contains("if (!nextKinds.includes(\"vertical\")) nextKinds.push(\"vertical\")"));
+    assert!(script.contains("next.marketplaceKinds = Array.from(new Set(nextKinds))"));
     assert!(script.contains("patchPluginMarketplaceResult"));
     assert!(script.contains("__CODEX_PLUS_PLUGIN_MARKETPLACES__"));
     assert!(script.contains("mergeLocalPluginMarketplaces(result)"));
@@ -280,6 +293,14 @@ fn injection_script_expands_api_key_plugin_marketplace_requests() {
     assert!(
         script.contains("if (name === \"openai-primary-runtime\") return \"OpenAI插件3(Codex++)\"")
     );
+    assert!(script.contains("restored === \"openai-api-curated\""));
+    assert!(script.contains("restored === \"openai-curated-remote\""));
+    assert!(
+        script.contains("if (name === \"openai-curated-remote\") return \"OpenAI插件5(Codex++)\"")
+    );
+    assert!(script.contains(
+        "if (name === \"codex-plus-openai-curated-remote\") return \"openai-curated-remote\""
+    ));
     assert!(script.contains("OpenAI插件1(Codex++)"));
     assert!(script.contains("OpenAI插件2(Codex++)"));
     assert!(script.contains("OpenAI插件3(Codex++)"));
@@ -294,14 +315,14 @@ fn injection_script_expands_api_key_plugin_marketplace_requests() {
 }
 
 #[test]
-fn injection_script_deletes_marketplace_kinds_to_request_default_catalog() {
+fn injection_script_preserves_vertical_marketplace_kind_for_official_plugins() {
     let script = assets::injection_script(57321);
 
-    assert!(script.contains("delete next.marketplaceKinds"));
     assert!(script.contains("plugin_marketplace_request_expanded"));
+    assert!(script.contains("if (!nextKinds.includes(\"vertical\")) nextKinds.push(\"vertical\")"));
     assert!(!script.contains("codexPluginAllowedMarketplaceKinds"));
     assert!(!script.contains("codexPluginExpandedMarketplaceKinds"));
-    assert!(!script.contains("next.marketplaceKinds = Array.from(new Set"));
+    assert!(!script.contains("delete next.marketplaceKinds"));
 }
 
 #[test]

@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+#[cfg(windows)]
+pub use crate::windows_integration::WindowsProcessInfo;
+
 pub const WATCHER_INTERVAL_SECONDS: f64 = 3.0;
 pub const CDP_PROBE_TIMEOUT_SECONDS: f64 = 0.5;
 pub const TAKEOVER_FAILURE_BACKOFF_SECONDS: f64 = 30.0;
@@ -88,12 +91,16 @@ pub fn codex_process_ids<'a>(processes: impl IntoIterator<Item = (u32, &'a str)>
     processes
         .into_iter()
         .filter_map(|(process_id, executable)| {
-            let executable = executable.to_ascii_lowercase();
-            executable
-                .contains("\\windowsapps\\openai.codex_")
-                .then_some(process_id)
+            is_windowsapps_codex_app_process(executable).then_some(process_id)
         })
         .collect()
+}
+
+fn is_windowsapps_codex_app_process(executable: &str) -> bool {
+    let executable = executable.replace('/', "\\").to_ascii_lowercase();
+    executable.contains("\\windowsapps\\openai.codex_")
+        && executable.ends_with("\\app\\codex.exe")
+        && !executable.contains("\\app\\resources\\")
 }
 
 pub fn filter_killable_launcher_processes<'a>(
@@ -170,10 +177,22 @@ pub fn uninstall_watcher() -> anyhow::Result<()> {
 
 #[cfg(windows)]
 pub fn find_codex_processes() -> Vec<u32> {
-    codex_process_ids(
-        crate::windows_integration::enumerate_processes()
-            .into_iter()
-            .filter(|process| process.exe_file.eq_ignore_ascii_case("codex.exe"))
+    let processes: Vec<_> = crate::windows_integration::enumerate_processes()
+        .into_iter()
+        .filter(|process| process.exe_file.eq_ignore_ascii_case("codex.exe"))
+        .collect();
+    find_codex_processes_from_snapshot(&processes)
+}
+
+/// Filter the list of already enumerated Windows processes for Codex processes.
+/// Exposed so the Windows-specific logic can be unit-tested without scanning the live system.
+#[cfg(windows)]
+pub fn find_codex_processes_from_snapshot(
+    processes: &[crate::windows_integration::WindowsProcessInfo],
+) -> Vec<u32> {
+    let mut ids = codex_process_ids(
+        processes
+            .iter()
             .filter_map(|process| {
                 process
                     .executable_path
@@ -183,7 +202,19 @@ pub fn find_codex_processes() -> Vec<u32> {
             .collect::<Vec<_>>()
             .iter()
             .map(|(pid, path)| (*pid, path.as_str())),
-    )
+    );
+
+    // Local/portable installs use Codex.exe as the Electron main process. Do not match
+    // lowercase codex.exe here; that is commonly the CLI binary.
+    for process in processes {
+        if process.exe_file == "Codex.exe" {
+            ids.push(process.process_id);
+        }
+    }
+
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 #[cfg(not(windows))]

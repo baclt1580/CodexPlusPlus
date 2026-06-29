@@ -5,8 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, WindowEvent};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri::{Emitter, Manager, WindowEvent};
 
 static APP_EXITING: AtomicBool = AtomicBool::new(false);
 const TRAY_MENU_SHOW: &str = "tray_show_main";
@@ -32,14 +31,17 @@ pub fn run() {
             } else {
                 "/index.html"
             };
-            let main_window =
+            let mut main_window_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App(url.into()))
                     .title("Codex++ 管理工具")
                     .inner_size(1180.0, 820.0)
-                    .min_inner_size(960.0, 720.0)
-                    .build()?;
+                    .min_inner_size(960.0, 720.0);
+            if let Some(icon) = app.default_window_icon().cloned() {
+                main_window_builder = main_window_builder.icon(icon)?;
+            }
+            let main_window = main_window_builder.build()?;
             install_tray(app)?;
-            register_main_window_events(main_window, app.handle().clone());
+            register_main_window_events(main_window);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,6 +54,9 @@ pub fn run() {
             commands::save_settings,
             commands::load_ccs_providers,
             commands::import_ccs_providers,
+            commands::load_pending_provider_import,
+            commands::confirm_pending_provider_import,
+            commands::dismiss_pending_provider_import,
             commands::list_local_sessions,
             commands::list_zed_remote_projects,
             commands::open_zed_remote,
@@ -100,7 +105,9 @@ pub fn run() {
             commands::switch_relay_profile,
             commands::apply_relay_injection,
             commands::apply_pure_api_injection,
-            commands::clear_relay_injection
+            commands::clear_relay_injection,
+            manager_exit_app,
+            manager_hide_to_tray
         ])
         .run(tauri::generate_context!());
     if let Err(error) = run_result {
@@ -154,14 +161,10 @@ fn install_tray<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
     Ok(())
 }
 
-fn register_main_window_events<R: tauri::Runtime>(
-    window: tauri::WebviewWindow<R>,
-    app_handle: tauri::AppHandle<R>,
-) {
+fn register_main_window_events<R: tauri::Runtime>(window: tauri::WebviewWindow<R>) {
     let event_window = window.clone();
-    let dialog_window = window.clone();
-    let dialog_app_handle = app_handle.clone();
     let minimized_window = event_window.clone();
+    let close_event_window = event_window.clone();
 
     event_window.on_window_event(move |event| match event {
         WindowEvent::Resized(_) => {
@@ -175,28 +178,21 @@ fn register_main_window_events<R: tauri::Runtime>(
             }
 
             api.prevent_close();
-            let app_for_decision = dialog_app_handle.clone();
-            let window_for_decision = dialog_window.clone();
-            dialog_app_handle
-                .dialog()
-                .message("要退出 Codex++ 管理工具，还是最小化到系统托盘？")
-                .title("关闭确认")
-                .kind(MessageDialogKind::Info)
-                .buttons(MessageDialogButtons::OkCancelCustom(
-                    "退出程序".into(),
-                    "最小化到托盘".into(),
-                ))
-                .show(move |should_exit| {
-                    if should_exit {
-                        APP_EXITING.store(true, Ordering::SeqCst);
-                        app_for_decision.exit(0);
-                    } else {
-                        let _ = window_for_decision.hide();
-                    }
-                });
+            let _ = close_event_window.emit("manager://close-requested", ());
         }
         _ => {}
     });
+}
+
+#[tauri::command]
+fn manager_exit_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
+    APP_EXITING.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
+#[tauri::command]
+fn manager_hide_to_tray<R: tauri::Runtime>(window: tauri::WebviewWindow<R>) {
+    let _ = window.hide();
 }
 
 fn show_main_window<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) {
@@ -234,14 +230,14 @@ fn install_panic_logger() {
 
 fn acquire_single_instance_guard() -> Option<codex_plus_core::ports::LoopbackPortGuard> {
     match codex_plus_core::ports::acquire_resilient_loopback_port_guard(
-        codex_plus_core::ports::MANAGER_GUARD_PORT,
+        codex_plus_core::ports::manager_guard_port(),
     ) {
         Ok(guard) => {
             if let Some(fallback_lock_path) = guard.fallback_path() {
                 let _ = codex_plus_core::diagnostic_log::append_diagnostic_log(
                     "manager.guard_fallback",
                     serde_json::json!({
-                        "requested_guard_port": codex_plus_core::ports::MANAGER_GUARD_PORT,
+                        "requested_guard_port": codex_plus_core::ports::manager_guard_port(),
                         "fallback_lock_path": fallback_lock_path
                     }),
                 );
@@ -252,7 +248,7 @@ fn acquire_single_instance_guard() -> Option<codex_plus_core::ports::LoopbackPor
             let _ = codex_plus_core::diagnostic_log::append_diagnostic_log(
                 "manager.already_running",
                 serde_json::json!({
-                    "guard_port": codex_plus_core::ports::MANAGER_GUARD_PORT
+                    "guard_port": codex_plus_core::ports::manager_guard_port()
                 }),
             );
             None
@@ -261,7 +257,7 @@ fn acquire_single_instance_guard() -> Option<codex_plus_core::ports::LoopbackPor
             let _ = codex_plus_core::diagnostic_log::append_diagnostic_log(
                 "manager.already_running",
                 serde_json::json!({
-                    "guard_port": codex_plus_core::ports::MANAGER_GUARD_PORT
+                    "guard_port": codex_plus_core::ports::manager_guard_port()
                 }),
             );
             None
@@ -270,7 +266,7 @@ fn acquire_single_instance_guard() -> Option<codex_plus_core::ports::LoopbackPor
             let _ = codex_plus_core::diagnostic_log::append_diagnostic_log(
                 "manager.guard_failed",
                 serde_json::json!({
-                    "guard_port": codex_plus_core::ports::MANAGER_GUARD_PORT,
+                    "guard_port": codex_plus_core::ports::manager_guard_port(),
                     "error": error.to_string()
                 }),
             );
