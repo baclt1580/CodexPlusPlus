@@ -29,7 +29,6 @@ export type PresetPatch = Partial<RelayProfile>;
 const categoryLabels: Record<string, string> = {
   official: t("官方"),
   cn_official: t("中国官方"),
-  aggregator: t("聚合/中转"),
   third_party: t("第三方"),
 };
 
